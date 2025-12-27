@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>MIOTOTO</title>
+
+<style>
+*{ box-sizing:border-box; }
+body{ font-family:Arial,sans-serif; background:#f3f3f3; }
+
+.wrapper{
+    width:900px;
+    margin:40px auto;
+    background:#ffb000;
+    padding:25px;
+    border-radius:10px;
+}
+
+header{
+    text-align:center;
+    margin-bottom:14px;
+}
+
+header img{
+    max-width:280px;
+    width:90%;
+    height:auto;
+}
+
+/* IMPORT */
+.import-box{ margin-bottom:12px; }
+
+/* SEARCH */
+.search-box{ position:relative; }
+
+/* ANTI AUTOFILL */
+.fake-input{
+    position:absolute;
+    top:-1000px;
+    left:-1000px;
+    opacity:0;
+}
+
+input.search-input{
+    width:100%;
+    padding:12px;
+    font-size:16px;
+    border:2px solid #000;
+    border-radius:4px;
+}
+
+/* DROPDOWN */
+.dropdown{
+    position:absolute;
+    width:100%;
+    background:#fff;
+    border:2px solid #000;
+    border-top:none;
+    display:none;
+    max-height:180px;
+    overflow-y:auto;
+    z-index:9999;
+}
+.dropdown div{
+    padding:10px;
+    cursor:pointer;
+}
+.dropdown div.active,
+.dropdown div:hover{
+    background:#ffb000;
+}
+
+/* TABLE */
+table{
+    width:100%;
+    margin-top:25px;
+    border-collapse:collapse;
+    table-layout:fixed;
+    display:none;
+}
+
+th, td{
+    border:2px solid #000;
+    padding:10px;
+    text-align:center;
+    font-weight:bold;
+    white-space:nowrap;
+    overflow:hidden;
+}
+
+.fit-text{ display:block; width:100%; }
+
+.pin-box{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+}
+
+.copyable{
+    cursor:pointer;
+    padding:4px 8px;
+    border:1px solid #000;
+    background:#ffcc55;
+}
+
+@keyframes blink{
+    0%{background:#ffcc55;}
+    50%{background:#fff;}
+    100%{background:#ffcc55;}
+}
+.blink{ animation:blink .3s linear 3; }
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+
+    <!-- HEADER with LOGO -->
+    <header>
+        <img src="https://imgmio.io/images/2025/05/11/giff-miototo-logo.gif" alt="MIOTOTO Logo">
+    </header>
+
+    <div class="import-box">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    </div>
+
+    <div class="search-box">
+        <input type="text" class="fake-input">
+        <input
+            id="search"
+            class="search-input"
+            placeholder="Upload file dulu..."
+            disabled
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+        >
+        <div class="dropdown" id="dropdown"></div>
+    </div>
+
+    <table id="resultTable">
+        <thead>
+            <tr>
+                <th>NAMA BANK</th>
+                <th>KLIK BCA</th>
+                <th>MY BCA</th>
+                <th>NO REK</th>
+                <th>PIN</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><div id="rNama" class="fit-text"></div></td>
+                <td><div id="rKlik" class="copyable fit-text"></div></td>
+                <td><div id="rMy"   class="copyable fit-text"></div></td>
+                <td><div id="rRek"  class="copyable fit-text"></div></td>
+                <td><div id="rPin"  class="pin-box"></div></td>
+            </tr>
+        </tbody>
+    </table>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+// CONFIG
+const PIN_GLOBAL = ["258159","Aa168168"];
+const STORE_DATA = "miototo_data";
+const STORE_LAST = "miototo_last";
+
+// STATE
+let data = [];
+let filtered = [];
+let index = -1;
+
+// ELEMENT
+const fileInput = document.getElementById("fileInput");
+const search = document.getElementById("search");
+const dropdown = document.getElementById("dropdown");
+const table = document.getElementById("resultTable");
+
+// UTILS
+const norm = s => String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+
+function copy(el,t){
+    navigator.clipboard.writeText(t);
+    el.classList.remove("blink"); void el.offsetWidth;
+    el.classList.add("blink");
+}
+
+[rKlik,rMy,rRek].forEach(el=>{
+    el.onclick=()=>copy(el,el.textContent);
+});
+
+function renderPins(){
+    rPin.innerHTML="";
+    PIN_GLOBAL.forEach(p=>{
+        const d=document.createElement("div");
+        d.textContent=p;
+        d.className="copyable";
+        d.onclick=()=>copy(d,p);
+        rPin.appendChild(d);
+    });
+}
+
+function render(it){
+    rNama.textContent=it.nama;
+    rKlik.textContent=it.klikbca;
+    rMy.textContent=it.mybca;
+    rRek.textContent=it.norek;
+    renderPins();
+    table.style.display="table";
+    dropdown.style.display="none";
+    search.value=it.nama.toUpperCase();
+    localStorage.setItem(STORE_LAST, JSON.stringify(it));
+}
+
+// LOAD STORAGE
+(function init(){
+    const s=localStorage.getItem(STORE_DATA);
+    if(s){
+        data=JSON.parse(s);
+        search.disabled=false;
+        search.placeholder="Ketik nama...";
+        const last=JSON.parse(localStorage.getItem(STORE_LAST)||"null");
+        if(last) render(last);
+    }
+})();
+
+// FILE IMPORT
+fileInput.addEventListener("change", async()=>{
+    const f=fileInput.files[0];
+    if(!f) return;
+
+    try{
+        const buf=await f.arrayBuffer();
+        const wb=XLSX.read(buf,{type:"array"});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        const raw=XLSX.utils.sheet_to_json(ws,{defval:""});
+
+        data = raw.map(r=>{
+            const o={};
+            for(const k in r){
+                const n=norm(k);
+                if(n.includes("nama")) o.nama=r[k];
+                if(n.includes("klik")) o.klikbca=r[k];
+                if(n.includes("my"))   o.mybca=r[k];
+                if(n.includes("rek"))  o.norek=r[k];
+            }
+            return o;
+        }).filter(x=>x.nama);
+
+        if(!data.length) return;
+
+        localStorage.setItem(STORE_DATA, JSON.stringify(data));
+        localStorage.removeItem(STORE_LAST);
+
+        search.disabled=false;
+        search.placeholder="Ketik nama...";
+        search.value="";
+        table.style.display="none";
+    }catch(e){}
+    finally{ fileInput.value=""; }
+});
+
+// SEARCH
+search.addEventListener("input",()=>{
+    const v=search.value.toLowerCase();
+    dropdown.innerHTML="";
+    index=-1;
+    table.style.display="none";
+
+    if(!v){ dropdown.style.display="none"; return; }
+
+    filtered=data.filter(d=>d.nama.toLowerCase().includes(v));
+    if(!filtered.length){ dropdown.style.display="none"; return; }
+
+    filtered.forEach((it,i)=>{
+        const d=document.createElement("div");
+        d.textContent=it.nama.toUpperCase();
+        d.onclick=()=>render(it);
+        dropdown.appendChild(d);
+    });
+    dropdown.style.display="block";
+});
+
+// KEYBOARD
+search.addEventListener("keydown",e=>{
+    const items=dropdown.querySelectorAll("div");
+    if(!items.length) return;
+
+    if(e.key==="ArrowDown"){
+        e.preventDefault();
+        if(index < items.length-1) index++;
+    }
+
+    if(e.key==="ArrowUp"){
+        e.preventDefault();
+        if(index > 0) index--;
+    }
+
+    if(e.key==="Enter" && index>=0){
+        e.preventDefault();
+        render(filtered[index]);
+        return;
+    }
+
+    items.forEach(x=>x.classList.remove("active"));
+    if(index>=0) items[index].classList.add("active");
+});
+
+// CLICK OUTSIDE
+document.addEventListener("click",e=>{
+    if(!e.target.closest(".search-box")){
+        dropdown.style.display="none";
+        index=-1;
+    }
+});
+</script>
+
+</body>
+</html>
